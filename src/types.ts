@@ -17,8 +17,19 @@ export interface Country {
   id: string;
   name: string;
   flag: string;
+  region: string;
   categories: Category[];
 }
+
+export const REGIONS = [
+  '아시아',
+  '유럽',
+  '아프리카',
+  '북아메리카',
+  '남아메리카',
+  '오세아니아',
+  '기타',
+] as const;
 
 export interface WorldState {
   /** 데이터 기준 시점 (사용자가 편집 가능) */

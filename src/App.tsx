@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Category, Country, Field, WorldState, uid } from './types';
+import { Category, Country, Field, REGIONS, WorldState, uid } from './types';
 import { seedWorld } from './data';
 
-const STORAGE_KEY = 'worldsim.v1';
+const STORAGE_KEY = 'worldsim.v2';
 
 function loadWorld(): WorldState {
   try {
@@ -35,8 +35,25 @@ export default function App() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return world.countries;
-    return world.countries.filter((c) => c.name.toLowerCase().includes(q));
+    return world.countries.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.region.toLowerCase().includes(q)
+    );
   }, [world.countries, query]);
+
+  // 대륙별로 묶어 사이드바에 표시 (REGIONS 순서 유지)
+  const grouped = useMemo(() => {
+    const order = [...REGIONS] as string[];
+    const map = new Map<string, Country[]>();
+    for (const c of filtered) {
+      const key = order.includes(c.region) ? c.region : '기타';
+      (map.get(key) ?? map.set(key, []).get(key)!).push(c);
+    }
+    return order
+      .filter((r) => map.has(r))
+      .map((r) => ({ region: r, countries: map.get(r)! }));
+  }, [filtered]);
 
   // --- 국가 단위 조작 -------------------------------------------------
   function updateCountry(id: string, fn: (c: Country) => Country) {
@@ -51,6 +68,7 @@ export default function App() {
       id: uid('country'),
       name: '새 국가',
       flag: '🏳️',
+      region: '기타',
       categories: [
         {
           id: uid('cat'),
@@ -218,18 +236,30 @@ export default function App() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <ul className="country-list">
-            {filtered.map((c) => (
-              <li
-                key={c.id}
-                className={c.id === selectedId ? 'active' : ''}
-                onClick={() => setSelectedId(c.id)}
-              >
-                <span className="flag">{c.flag}</span>
-                <span className="name">{c.name}</span>
-              </li>
+          <div className="country-list">
+            {grouped.map((g) => (
+              <div className="region-group" key={g.region}>
+                <div className="region-head">
+                  {g.region} <span className="region-count">{g.countries.length}</span>
+                </div>
+                <ul>
+                  {g.countries.map((c) => (
+                    <li
+                      key={c.id}
+                      className={c.id === selectedId ? 'active' : ''}
+                      onClick={() => setSelectedId(c.id)}
+                    >
+                      <span className="flag">{c.flag}</span>
+                      <span className="name">{c.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
+            {grouped.length === 0 && (
+              <div className="no-result">검색 결과 없음</div>
+            )}
+          </div>
           <button className="add-country" onClick={addCountry}>
             + 국가 추가
           </button>
@@ -245,6 +275,9 @@ export default function App() {
               }
               onFlag={(flag) =>
                 updateCountry(selected.id, (c) => ({ ...c, flag }))
+              }
+              onRegion={(region) =>
+                updateCountry(selected.id, (c) => ({ ...c, region }))
               }
               onDelete={() => deleteCountry(selected.id)}
               onAddCategory={() => addCategory(selected.id)}
@@ -275,6 +308,7 @@ interface EditorProps {
   country: Country;
   onName: (name: string) => void;
   onFlag: (flag: string) => void;
+  onRegion: (region: string) => void;
   onDelete: () => void;
   onAddCategory: () => void;
   onCategoryName: (catId: string, name: string) => void;
@@ -300,6 +334,17 @@ function CountryEditor(p: EditorProps) {
           value={country.name}
           onChange={(e) => p.onName(e.target.value)}
         />
+        <select
+          className="region-select"
+          value={REGIONS.includes(country.region as never) ? country.region : '기타'}
+          onChange={(e) => p.onRegion(e.target.value)}
+        >
+          {REGIONS.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
         <button className="danger" onClick={p.onDelete}>
           국가 삭제
         </button>
