@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Category, Country, Field, REGIONS, WorldState, uid } from './types';
 import { seedWorld } from './data';
+import {
+  MetricKey,
+  METRIC_OPTIONS,
+  WorldStats,
+  computeStats,
+  fmtMetric,
+  getMetric,
+  intl,
+} from './metrics';
 
-const STORAGE_KEY = 'worldsim.v2';
+const STORAGE_KEY = 'worldsim.v3';
 
 function loadWorld(): WorldState {
   try {
@@ -20,6 +29,9 @@ export default function App() {
     () => world.countries[0]?.id ?? null
   );
   const [query, setQuery] = useState('');
+  const [sortKey, setSortKey] = useState<'region' | MetricKey>('region');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [showStats, setShowStats] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   // 모든 변경은 자동으로 로컬 저장
@@ -54,6 +66,27 @@ export default function App() {
       .filter((r) => map.has(r))
       .map((r) => ({ region: r, countries: map.get(r)! }));
   }, [filtered]);
+
+  // 정렬된 평면 목록 (sortKey가 '대륙별'이 아닐 때 사용)
+  const sorted = useMemo(() => {
+    if (sortKey === 'region') return [];
+    const dir = sortDir === 'asc' ? 1 : -1;
+    const list = [...filtered];
+    list.sort((a, b) => {
+      if (sortKey === 'name') return a.name.localeCompare(b.name, 'ko') * dir;
+      const av = getMetric(a, sortKey);
+      const bv = getMetric(b, sortKey);
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1; // 값 없음은 항상 뒤로
+      if (bv == null) return -1;
+      return (av - bv) * dir;
+    });
+    return list;
+  }, [filtered, sortKey, sortDir]);
+
+  const stats = useMemo<WorldStats>(() => computeStats(filtered), [filtered]);
+
+  const isGrouped = sortKey === 'region';
 
   // --- 국가 단위 조작 -------------------------------------------------
   function updateCountry(id: string, fn: (c: Country) => Country) {
@@ -209,6 +242,9 @@ export default function App() {
           />
         </label>
         <div className="actions">
+          <button className="primary" onClick={() => setShowStats(true)}>
+            📊 통계
+          </button>
           <button onClick={exportJson}>내보내기</button>
           <button onClick={() => fileInput.current?.click()}>가져오기</button>
           <button className="danger" onClick={resetWorld}>
@@ -236,28 +272,79 @@ export default function App() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+          <div className="sort-bar">
+            <select
+              className="sort-select"
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as 'region' | MetricKey)}
+            >
+              <option value="region">대륙별 (기본)</option>
+              {METRIC_OPTIONS.map((o) => (
+                <option key={o.key} value={o.key}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <button
+              className="sort-dir"
+              title={sortDir === 'asc' ? '오름차순' : '내림차순'}
+              disabled={isGrouped}
+              onClick={() =>
+                setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+              }
+            >
+              {sortDir === 'asc' ? '▲' : '▼'}
+            </button>
+          </div>
           <div className="country-list">
-            {grouped.map((g) => (
-              <div className="region-group" key={g.region}>
-                <div className="region-head">
-                  {g.region} <span className="region-count">{g.countries.length}</span>
-                </div>
-                <ul>
-                  {g.countries.map((c) => (
-                    <li
-                      key={c.id}
-                      className={c.id === selectedId ? 'active' : ''}
-                      onClick={() => setSelectedId(c.id)}
-                    >
-                      <span className="flag">{c.flag}</span>
-                      <span className="name">{c.name}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-            {grouped.length === 0 && (
-              <div className="no-result">검색 결과 없음</div>
+            {isGrouped ? (
+              <>
+                {grouped.map((g) => (
+                  <div className="region-group" key={g.region}>
+                    <div className="region-head">
+                      {g.region}{' '}
+                      <span className="region-count">{g.countries.length}</span>
+                    </div>
+                    <ul>
+                      {g.countries.map((c) => (
+                        <li
+                          key={c.id}
+                          className={c.id === selectedId ? 'active' : ''}
+                          onClick={() => setSelectedId(c.id)}
+                        >
+                          <span className="flag">{c.flag}</span>
+                          <span className="name">{c.name}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+                {grouped.length === 0 && (
+                  <div className="no-result">검색 결과 없음</div>
+                )}
+              </>
+            ) : (
+              <ul className="ranked">
+                {sorted.map((c, i) => (
+                  <li
+                    key={c.id}
+                    className={c.id === selectedId ? 'active' : ''}
+                    onClick={() => setSelectedId(c.id)}
+                  >
+                    <span className="rank">{i + 1}</span>
+                    <span className="flag">{c.flag}</span>
+                    <span className="name">{c.name}</span>
+                    {sortKey !== 'name' && (
+                      <span className="metric">
+                        {fmtMetric(sortKey, getMetric(c, sortKey))}
+                      </span>
+                    )}
+                  </li>
+                ))}
+                {sorted.length === 0 && (
+                  <div className="no-result">검색 결과 없음</div>
+                )}
+              </ul>
             )}
           </div>
           <button className="add-country" onClick={addCountry}>
@@ -300,6 +387,108 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {showStats && (
+        <StatsPanel
+          stats={stats}
+          asOf={world.asOf}
+          onClose={() => setShowStats(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function StatsPanel({
+  stats,
+  asOf,
+  onClose,
+}: {
+  stats: WorldStats;
+  asOf: string;
+  onClose: () => void;
+}) {
+  const cards: { label: string; value: string }[] = [
+    { label: '국가 수', value: `${stats.count}개국` },
+    {
+      label: '총인구',
+      value: `${intl(stats.totalPopulation)}명 (약 ${(stats.totalPopulation / 1e8).toFixed(1)}억)`,
+    },
+    { label: '총면적', value: `${intl(stats.totalArea)} km²` },
+    {
+      label: 'GDP 합계 (명목)',
+      value: `$${(stats.totalGdp / 1000).toFixed(1)}T`,
+    },
+    { label: '평균 1인당 GDP', value: `$${intl(stats.avgGdpPerCapita)}` },
+    { label: '평균 합계출산율', value: stats.avgBirthRate.toFixed(2) },
+    { label: '평균 기대수명', value: `${stats.avgLifeExp.toFixed(1)}세` },
+    { label: '평균 도시화율', value: `${stats.avgUrban.toFixed(0)}%` },
+    { label: '전체 인구밀도', value: `${stats.density.toFixed(1)} 명/km²` },
+  ];
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2>📊 세계 통계</h2>
+          <span className="modal-sub">현재 목록 기준 · {asOf}</span>
+          <button className="modal-close" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+
+        <div className="stat-grid">
+          {cards.map((c) => (
+            <div className="stat-card" key={c.label}>
+              <div className="stat-value">{c.value}</div>
+              <div className="stat-label">{c.label}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="top-lists">
+          <TopList title="인구 상위 5개국" rows={stats.topPopulation} unit="명" />
+          <TopList
+            title="GDP 상위 5개국"
+            rows={stats.topGdp}
+            unit="B"
+            money
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TopList({
+  title,
+  rows,
+  unit,
+  money,
+}: {
+  title: string;
+  rows: { name: string; flag: string; value: number }[];
+  unit: string;
+  money?: boolean;
+}) {
+  return (
+    <div className="top-list">
+      <h3>{title}</h3>
+      <ol>
+        {rows.map((r) => (
+          <li key={r.name}>
+            <span className="flag">{r.flag}</span>
+            <span className="name">{r.name}</span>
+            <span className="val">
+              {money
+                ? r.value >= 1000
+                  ? `$${(r.value / 1000).toFixed(2)}T`
+                  : `$${intl(r.value)}B`
+                : `${intl(r.value)}${unit}`}
+            </span>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
