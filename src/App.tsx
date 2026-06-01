@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Category, Country, Field, REGIONS, WorldState, uid } from './types';
+import {
+  Category,
+  Consequence,
+  Country,
+  Field,
+  REGIONS,
+  ScenarioEvent,
+  WorldState,
+  uid,
+} from './types';
 import { seedWorld } from './data';
 import {
   MetricKey,
@@ -16,7 +25,11 @@ const STORAGE_KEY = 'worldsim.v3';
 function loadWorld(): WorldState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as WorldState;
+    if (raw) {
+      const data = JSON.parse(raw) as WorldState;
+      if (!Array.isArray(data.events)) data.events = []; // 구버전 데이터 호환
+      return data;
+    }
   } catch {
     /* 손상된 데이터는 무시하고 새로 시작 */
   }
@@ -32,6 +45,8 @@ export default function App() {
   const [sortKey, setSortKey] = useState<'region' | MetricKey>('region');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [showStats, setShowStats] = useState(false);
+  const [view, setView] = useState<'countries' | 'scenario'>('countries');
+  const [eventSortDir, setEventSortDir] = useState<'asc' | 'desc'>('asc');
   const fileInput = useRef<HTMLInputElement>(null);
 
   // 모든 변경은 자동으로 로컬 저장
@@ -225,12 +240,86 @@ export default function App() {
     setSelectedId(fresh.countries[0]?.id ?? null);
   }
 
+  // --- 시나리오(사건) 조작 -------------------------------------------
+  const sortedEvents = useMemo(() => {
+    const dir = eventSortDir === 'asc' ? 1 : -1;
+    return [...world.events].sort(
+      (a, b) => a.date.localeCompare(b.date) * dir
+    );
+  }, [world.events, eventSortDir]);
+
+  function addEvent() {
+    const ev: ScenarioEvent = {
+      id: uid('event'),
+      date: world.asOf || '2026-01-01',
+      title: '새 사건',
+      description: '',
+      countries: [],
+      consequences: [],
+    };
+    setWorld((w) => ({ ...w, events: [...w.events, ev] }));
+  }
+
+  function updateEvent(id: string, patch: Partial<ScenarioEvent>) {
+    setWorld((w) => ({
+      ...w,
+      events: w.events.map((e) => (e.id === id ? { ...e, ...patch } : e)),
+    }));
+  }
+
+  function deleteEvent(id: string) {
+    const ev = world.events.find((e) => e.id === id);
+    if (ev && !confirm(`"${ev.title}" 사건을 삭제할까요?`)) return;
+    setWorld((w) => ({ ...w, events: w.events.filter((e) => e.id !== id) }));
+  }
+
+  function addConsequence(eventId: string) {
+    updateEvent(eventId, {
+      consequences: [
+        ...(world.events.find((e) => e.id === eventId)?.consequences ?? []),
+        { id: uid('cons'), text: '' },
+      ],
+    });
+  }
+
+  function updateConsequence(eventId: string, consId: string, text: string) {
+    const ev = world.events.find((e) => e.id === eventId);
+    if (!ev) return;
+    updateEvent(eventId, {
+      consequences: ev.consequences.map((c) =>
+        c.id === consId ? { ...c, text } : c
+      ),
+    });
+  }
+
+  function deleteConsequence(eventId: string, consId: string) {
+    const ev = world.events.find((e) => e.id === eventId);
+    if (!ev) return;
+    updateEvent(eventId, {
+      consequences: ev.consequences.filter((c) => c.id !== consId),
+    });
+  }
+
   return (
     <div className="app">
       <header className="topbar">
         <div className="brand">
           🌍 <strong>WorldSim</strong>
           <span className="sub">지구 편집기</span>
+        </div>
+        <div className="tabs">
+          <button
+            className={view === 'countries' ? 'tab active' : 'tab'}
+            onClick={() => setView('countries')}
+          >
+            🌍 국가
+          </button>
+          <button
+            className={view === 'scenario' ? 'tab active' : 'tab'}
+            onClick={() => setView('scenario')}
+          >
+            📜 시나리오
+          </button>
         </div>
         <label className="asof">
           기준일
@@ -242,9 +331,11 @@ export default function App() {
           />
         </label>
         <div className="actions">
-          <button className="primary" onClick={() => setShowStats(true)}>
-            📊 통계
-          </button>
+          {view === 'countries' && (
+            <button className="primary" onClick={() => setShowStats(true)}>
+              📊 통계
+            </button>
+          )}
           <button onClick={exportJson}>내보내기</button>
           <button onClick={() => fileInput.current?.click()}>가져오기</button>
           <button className="danger" onClick={resetWorld}>
@@ -264,6 +355,21 @@ export default function App() {
         </div>
       </header>
 
+      {view === 'scenario' ? (
+        <ScenarioEditor
+          events={sortedEvents}
+          sortDir={eventSortDir}
+          onToggleSort={() =>
+            setEventSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+          }
+          onAdd={addEvent}
+          onUpdate={updateEvent}
+          onDelete={deleteEvent}
+          onAddConsequence={addConsequence}
+          onUpdateConsequence={updateConsequence}
+          onDeleteConsequence={deleteConsequence}
+        />
+      ) : (
       <div className="body">
         <aside className="sidebar">
           <input
@@ -387,6 +493,7 @@ export default function App() {
           )}
         </main>
       </div>
+      )}
 
       {showStats && (
         <StatsPanel
@@ -396,6 +503,149 @@ export default function App() {
         />
       )}
     </div>
+  );
+}
+
+interface ScenarioProps {
+  events: ScenarioEvent[];
+  sortDir: 'asc' | 'desc';
+  onToggleSort: () => void;
+  onAdd: () => void;
+  onUpdate: (id: string, patch: Partial<ScenarioEvent>) => void;
+  onDelete: (id: string) => void;
+  onAddConsequence: (eventId: string) => void;
+  onUpdateConsequence: (eventId: string, consId: string, text: string) => void;
+  onDeleteConsequence: (eventId: string, consId: string) => void;
+}
+
+function ScenarioEditor(p: ScenarioProps) {
+  return (
+    <main className="scenario">
+      <div className="scenario-head">
+        <h2>📜 시나리오 타임라인</h2>
+        <span className="scenario-sub">{p.events.length}개 사건</span>
+        <div className="scenario-actions">
+          <button onClick={p.onToggleSort}>
+            날짜 {p.sortDir === 'asc' ? '오래된순 ▲' : '최신순 ▼'}
+          </button>
+          <button className="primary" onClick={p.onAdd}>
+            + 사건 추가
+          </button>
+        </div>
+      </div>
+
+      {p.events.length === 0 ? (
+        <div className="empty">
+          아직 기록된 사건이 없습니다. <b>+ 사건 추가</b>로 시작하세요.
+        </div>
+      ) : (
+        <div className="timeline">
+          {p.events.map((ev) => (
+            <EventCard
+              key={ev.id}
+              ev={ev}
+              onUpdate={(patch) => p.onUpdate(ev.id, patch)}
+              onDelete={() => p.onDelete(ev.id)}
+              onAddConsequence={() => p.onAddConsequence(ev.id)}
+              onUpdateConsequence={(cid, text) =>
+                p.onUpdateConsequence(ev.id, cid, text)
+              }
+              onDeleteConsequence={(cid) => p.onDeleteConsequence(ev.id, cid)}
+            />
+          ))}
+        </div>
+      )}
+    </main>
+  );
+}
+
+function EventCard({
+  ev,
+  onUpdate,
+  onDelete,
+  onAddConsequence,
+  onUpdateConsequence,
+  onDeleteConsequence,
+}: {
+  ev: ScenarioEvent;
+  onUpdate: (patch: Partial<ScenarioEvent>) => void;
+  onDelete: () => void;
+  onAddConsequence: () => void;
+  onUpdateConsequence: (consId: string, text: string) => void;
+  onDeleteConsequence: (consId: string) => void;
+}) {
+  return (
+    <article className="event-card">
+      <div className="event-line" />
+      <div className="event-dot" />
+      <div className="event-body">
+        <div className="event-top">
+          <input
+            className="event-date"
+            type="date"
+            value={ev.date}
+            onChange={(e) => onUpdate({ date: e.target.value })}
+          />
+          <input
+            className="event-title"
+            value={ev.title}
+            placeholder="사건 제목"
+            onChange={(e) => onUpdate({ title: e.target.value })}
+          />
+          <button className="link danger" onClick={onDelete}>
+            삭제
+          </button>
+        </div>
+
+        <textarea
+          className="event-desc"
+          value={ev.description}
+          placeholder="무슨 일이 일어났는지 설명…"
+          rows={2}
+          onChange={(e) => onUpdate({ description: e.target.value })}
+        />
+
+        <label className="event-field">
+          <span>관련국</span>
+          <input
+            value={ev.countries.join(', ')}
+            placeholder="예: 대한민국, 미국, 중국 (쉼표로 구분)"
+            onChange={(e) =>
+              onUpdate({
+                countries: e.target.value
+                  .split(',')
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              })
+            }
+          />
+        </label>
+
+        <div className="consequences">
+          <div className="consequences-head">결과</div>
+          {ev.consequences.map((c: Consequence) => (
+            <div className="cons-row" key={c.id}>
+              <span className="cons-bullet">→</span>
+              <input
+                value={c.text}
+                placeholder="그에 따른 결과…"
+                onChange={(e) => onUpdateConsequence(c.id, e.target.value)}
+              />
+              <button
+                className="del-field"
+                title="결과 삭제"
+                onClick={() => onDeleteConsequence(c.id)}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          <button className="link" onClick={onAddConsequence}>
+            + 결과 추가
+          </button>
+        </div>
+      </div>
+    </article>
   );
 }
 

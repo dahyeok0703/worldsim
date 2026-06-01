@@ -489,9 +489,38 @@ function buildCountry(row: Row): Country {
   };
 }
 
+// 시나리오 예시 (편집 출발점). "예시:"는 지우고 자유롭게 작성하면 된다.
+function seedEvents() {
+  const cons = (texts: string[]) =>
+    texts.map((t) => ({ id: uid('cons'), text: t }));
+  return [
+    {
+      id: uid('event'),
+      date: '2026-01-15',
+      title: '예시: 주요 산유국 감산 합의',
+      description: 'OPEC+ 회원국이 하루 약 200만 배럴 추가 감산에 합의했다.',
+      countries: ['사우디아라비아', '러시아'],
+      consequences: cons([
+        '국제 유가 배럴당 약 10% 상승',
+        '산유국 재정수입 증가',
+        '에너지 수입국 인플레이션 압력 확대',
+      ]),
+    },
+    {
+      id: uid('event'),
+      date: '2026-03-02',
+      title: '예시: 아시아 디지털 무역 협정 발효',
+      description: '아시아 주요국 간 디지털 교역·데이터 이동에 관한 협정이 발효되었다.',
+      countries: ['대한민국', '일본', '싱가포르'],
+      consequences: cons(['역내 디지털 교역량 증가', '디지털 관세 철폐', '스타트업 진출 가속']),
+    },
+  ];
+}
+
 export function seedWorld(): WorldState {
   return {
     asOf: '2026-06-01',
     countries: ROWS.map(buildCountry),
+    events: seedEvents(),
   };
 }

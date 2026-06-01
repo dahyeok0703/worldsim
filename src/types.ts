@@ -31,10 +31,26 @@ export const REGIONS = [
   '기타',
 ] as const;
 
+// 시나리오: 날짜별 국제 사건과 그 결과를 기록한다.
+export interface Consequence {
+  id: string;
+  text: string;
+}
+
+export interface ScenarioEvent {
+  id: string;
+  date: string; // YYYY-MM-DD
+  title: string;
+  description: string;
+  countries: string[]; // 관련국 (자유 입력)
+  consequences: Consequence[];
+}
+
 export interface WorldState {
   /** 데이터 기준 시점 (사용자가 편집 가능) */
   asOf: string;
   countries: Country[];
+  events: ScenarioEvent[];
 }
 
 let counter = 0;
