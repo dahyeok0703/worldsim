@@ -1,132 +1,80 @@
 export type StatKey = 'STR' | 'AGI' | 'VIT' | 'PER' | 'WIL';
-
-export interface Stats {
-  STR: number; // 힘 — 공격력
-  AGI: number; // 민첩 — 회피·도주
-  VIT: number; // 체력 — HP·방어
-  PER: number; // 감각 — 치명타·명중
-  WIL: number; // 정신 — 능력·공포저항
-}
+export interface Stats { STR: number; AGI: number; VIT: number; PER: number; WIL: number; }
 
 export const STAT_LABEL: Record<StatKey, string> = {
-  STR: '힘',
-  AGI: '민첩',
-  VIT: '체력',
-  PER: '감각',
-  WIL: '정신',
+  STR: '힘', AGI: '민첩', VIT: '체력', PER: '감각', WIL: '정신',
 };
-
 export const STAT_DESC: Record<StatKey, string> = {
-  STR: '공격력과 완력',
-  AGI: '이동 속도·회피·도주 성공률',
-  VIT: '최대 HP와 피해 감소',
-  PER: '치명타 확률·위험 감지',
-  WIL: '최대 정신력·스킬 자원·공포 저항',
+  STR: '근접 공격력·완력',
+  AGI: '회피·도주·은신',
+  VIT: '최대 HP·피해 감소',
+  PER: '치명타·수색 효율·위험 감지',
+  WIL: '최대 정신력·공포 저항',
 };
 
-export interface Skill {
-  id: string;
-  name: string;
-  desc: string;
-  cost: number; // 정신력 소모
-  type: 'attack' | 'heal' | 'utility' | 'passive';
-  unlockLevel: number;
+export type ItemType = 'food' | 'water' | 'med' | 'material' | 'weapon' | 'tool';
+export interface ItemDef {
+  id: string; name: string; type: ItemType; desc: string;
+  food?: number; water?: number; hp?: number; sanity?: number;
+  cureInfection?: number; atk?: number;
 }
 
-export interface Item {
+export interface Recipe { id: string; name: string; out: string; outQty: number; inputs: { id: string; qty: number }[]; needTool?: string; desc: string; }
+
+export type SpotType =
+  | 'residential' | 'mart' | 'pharmacy' | 'hospital' | 'military' | 'police'
+  | 'station' | 'park' | 'industrial' | 'school' | 'gas' | 'downtown'
+  | 'gov' | 'airport' | 'port' | 'lab';
+
+export interface Spot {
   id: string;
+  regionId: string;
   name: string;
-  desc: string;
-  type: 'weapon' | 'heal' | 'misc';
-  atk?: number; // 무기 공격력
-  heal?: number; // 회복량(HP)
-  mental?: number; // 정신력 회복
+  type: SpotType;
+  zombies: number;
+  looted: number; // 0~100 (남은 물자 %는 100-looted 개념)
+  secured: boolean; // 거점화 여부
+  discovered: boolean;
 }
 
-export interface Enemy {
+export interface Region {
   id: string;
   name: string;
-  desc: string;
-  hp: number;
-  atk: number;
-  def?: number;
-  exp: number;
-  dodge?: number; // 적의 회피율(0~1)
-  loot?: { item: string; chance: number }[];
-  noEat?: boolean; // 포식 불가
-  boss?: boolean;
+  neighbors: string[];
+  overseas?: boolean;
+  infestation: number; // 0~100
+  spots: Spot[];
 }
 
 export interface Player {
   name: string;
-  level: number;
-  exp: number;
-  hp: number;
-  mental: number;
+  level: number; exp: number; statPoints: number;
   stats: Stats;
-  statPoints: number;
+  hp: number; sanity: number;
+  food: number; water: number; energy: number; infection: number;
   skills: string[];
-  inventory: string[];
-  equipped?: string; // 무기 id
-  title?: string;
-  flags: Record<string, boolean | number>;
+  inv: Record<string, number>; // itemId -> qty
+  equipped?: string;
+  locationId: string;
+  baseId?: string;
+  day: number; hour: number;
+  killed: number;
+  flags: Record<string, boolean | number | string>;
 }
 
-export interface CombatState {
-  enemy: Enemy;
-  enemyHp: number;
-  turn: number;
-  next: string; // 승리 후 이동할 씬
-  analyzed: boolean; // 간파 적용 여부
-  over: boolean; // 적 처치 완료(계속 버튼 대기)
-}
-
-export interface Effect {
-  hp?: number;
-  mental?: number;
-  exp?: number;
-  addItem?: string;
-  removeItem?: string;
-  addSkill?: string;
-  statPoints?: number;
-  equip?: string;
-  title?: string;
-  flag?: [string, boolean | number];
-}
-
-export interface Requirement {
-  stat?: Partial<Stats>;
-  item?: string;
-  skill?: string;
-  flag?: string;
-  minLevel?: number;
-}
-
-export interface Choice {
-  label: string;
-  effects?: Effect[];
-  combat?: string; // 적 id → 전투 시작
-  next?: string; // 이동할 씬
-  requires?: Requirement;
-  note?: string; // 선택지 보조 설명
-}
-
-export interface Scene {
-  id: string;
-  title?: string;
-  text: string;
-  onEnter?: Effect[];
-  choices: Choice[];
-  ending?: 'good' | 'bad' | 'neutral';
-}
-
-export type Phase = 'title' | 'create' | 'scene' | 'combat' | 'gameover';
+export type Phase = 'title' | 'create' | 'play' | 'dead';
 
 export interface GameState {
   phase: Phase;
   player: Player;
-  sceneId: string;
-  combat?: CombatState;
+  regions: Record<string, Region>;
   log: string[];
-  ending?: 'good' | 'bad' | 'neutral';
+  pending?: PendingEvent; // 선택이 필요한 이벤트
+}
+
+export interface EventChoice { label: string; }
+export interface PendingEvent {
+  title: string;
+  text: string;
+  choices: { label: string; key: string }[];
 }
